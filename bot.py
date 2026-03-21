@@ -141,10 +141,12 @@ ROLE_MESSAGES = {
         "roles": {
             "🇪🇺": "Europe",
             "🌎": "North America",
-            "🌏": "South America",
-            "🌏": "Asia",
-            "🌍": "Africa",
+            "🌱": "South America",
+            "🏯": "Asia",
+            "🌅": "Africa",
             "🌊": "Oceania"
+    }
+}
         }
     },
     "status": {
