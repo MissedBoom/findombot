@@ -6,13 +6,14 @@ import os
 import asyncio
 
 # ─────────────────────────────────────────────
-# CONFIGURATION 
+# CONFIGURATION
 # ─────────────────────────────────────────────
 
 TOKEN = os.getenv("TOKEN")
 RULES_CHANNEL = "rules"
 SESSIONS_CHANNEL = "sessions"
 PROFILE_CHANNELS = ["brat", "mb"]
+ROLES_CHANNEL = "roles"
 
 # ─────────────────────────────────────────────
 # DATA
@@ -50,15 +51,117 @@ bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 active_sessions = {}
 
 # ─────────────────────────────────────────────
+# ROLE MESSAGES CONFIG
+# ─────────────────────────────────────────────
+
+ROLE_MESSAGES = {
+    "age": {
+        "title": "🎂 Age",
+        "description": "React to get your age role. You can only have one at a time.",
+        "roles": {
+            "1️⃣": "18-25",
+            "2️⃣": "26-35",
+            "3️⃣": "36+"
+        }
+    },
+    "location": {
+        "title": "🌍 Location",
+        "description": "React to get your location role. You can only have one at a time.",
+        "roles": {
+            "🇪🇺": "Europe",
+            "🌎": "North America",
+            "🌱": "South America",
+            "🏯": "Asia",
+            "🌅": "Africa",
+            "🌊": "Oceania"
+        }
+    },
+    "status": {
+        "title": "👤 Status",
+        "description": "React to get your status role. You can only have one at a time.",
+        "roles": {
+            "🔴": "Sub",
+            "🟡": "Switch",
+            "🟣": "Domme"
+        }
+    }
+}
+
+role_message_ids = {}
+
+# ─────────────────────────────────────────────
 # EVENTS
 # ─────────────────────────────────────────────
 
 @bot.event
 async def on_ready():
-    await bot.tree.sync()
     synced = await bot.tree.sync()
     print(f"✅ Bot connected as {bot.user}")
     print(f"✅ {len(synced)} slash commands synced")
+
+
+@bot.event
+async def on_raw_reaction_add(payload):
+    if payload.member.bot:
+        return
+
+    guild = bot.get_guild(payload.guild_id)
+    channel = guild.get_channel(payload.channel_id)
+
+    # Rules
+    if channel.name == RULES_CHANNEL:
+        if str(payload.emoji) != "✅":
+            return
+        role = discord.utils.get(guild.roles, name="Member")
+        if role and role not in payload.member.roles:
+            await payload.member.add_roles(role)
+        return
+
+    # Reaction roles
+    if payload.message_id not in role_message_ids:
+        return
+
+    category = role_message_ids[payload.message_id]
+    data = ROLE_MESSAGES[category]
+    emoji = str(payload.emoji)
+
+    if emoji not in data["roles"]:
+        return
+
+    role_name = data["roles"][emoji]
+    new_role = discord.utils.get(guild.roles, name=role_name)
+    if not new_role:
+        return
+
+    old_roles = [discord.utils.get(guild.roles, name=r) for r in data["roles"].values()]
+    old_roles = [r for r in old_roles if r and r in payload.member.roles and r != new_role]
+    if old_roles:
+        await payload.member.remove_roles(*old_roles)
+
+    await payload.member.add_roles(new_role)
+
+
+@bot.event
+async def on_raw_reaction_remove(payload):
+    guild = bot.get_guild(payload.guild_id)
+    member = guild.get_member(payload.user_id)
+    if not member or member.bot:
+        return
+
+    if payload.message_id not in role_message_ids:
+        return
+
+    category = role_message_ids[payload.message_id]
+    data = ROLE_MESSAGES[category]
+    emoji = str(payload.emoji)
+
+    if emoji not in data["roles"]:
+        return
+
+    role_name = data["roles"][emoji]
+    role = discord.utils.get(guild.roles, name=role_name)
+    if role and role in member.roles:
+        await member.remove_roles(role)
 
 # ─────────────────────────────────────────────
 # VIEWS
@@ -119,143 +222,6 @@ class SessionView(discord.ui.View):
             item.disabled = True
 
 # ─────────────────────────────────────────────
-# ROLE REACTIONS
-# ─────────────────────────────────────────────
-
-ROLES_CHANNEL = "roles"
-
-# Structure des rôles par catégorie
-ROLE_MESSAGES = {
-    "age": {
-        "title": "🎂 Age",
-        "description": "React to get your age role. You can only have one at a time.",
-        "roles": {
-            "1️⃣": "18-25",
-            "2️⃣": "26-35",
-            "3️⃣": "36+"
-        }
-    },
-    "location": {
-        "title": "🌍 Location",
-        "description": "React to get your location role. You can only have one at a time.",
-        "roles": {
-            "🇪🇺": "Europe",
-            "🌎": "North America",
-            "🌱": "South America",
-            "🏯": "Asia",
-            "🌅": "Africa",
-            "🌊": "Oceania"
-    }
-}
-        }
-    },
-    "status": {
-        "title": "👤 Status",
-        "description": "React to get your status role. You can only have one at a time.",
-        "roles": {
-            "🔴": "Sub",
-            "🟡": "Switch",
-            "🟣": "Domme"
-        }
-    }
-}
-
-# Stocke les IDs des messages de rôles
-role_message_ids = {}
-
-@bot.tree.command(name="post-roles", description="[Admin] Post the role selection messages in #roles")
-@app_commands.checks.has_permissions(administrator=True)
-async def post_roles(interaction: discord.Interaction):
-    channel = discord.utils.get(interaction.guild.text_channels, name=ROLES_CHANNEL)
-    if not channel:
-        await interaction.response.send_message(f"❌ Channel `#{ROLES_CHANNEL}` not found!", ephemeral=True)
-        return
-
-    await interaction.response.send_message(f"✅ Posting role messages in {channel.mention}!", ephemeral=True)
-
-    for category, data in ROLE_MESSAGES.items():
-        embed = discord.Embed(
-            title=data["title"],
-            color=0x9b59b6
-        )
-        description = data["description"] + "\n\n"
-        for emoji, role_name in data["roles"].items():
-            description += f"{emoji} — **{role_name}**\n"
-        embed.description = description
-
-        msg = await channel.send(embed=embed)
-        role_message_ids[msg.id] = category
-
-        for emoji in data["roles"].keys():
-            await msg.add_reaction(emoji)
-
-
-@bot.event
-async def on_raw_reaction_add(payload):
-    if payload.member.bot:
-        return
-
-    guild = bot.get_guild(payload.guild_id)
-    channel = guild.get_channel(payload.channel_id)
-
-    # Gestion des règles
-    if channel.name == RULES_CHANNEL:
-        if str(payload.emoji) != "✅":
-            return
-        role = discord.utils.get(guild.roles, name="Member")
-        if role and role not in payload.member.roles:
-            await payload.member.add_roles(role)
-        return
-
-    # Gestion des rôles
-    if payload.message_id not in role_message_ids:
-        return
-
-    category = role_message_ids[payload.message_id]
-    data = ROLE_MESSAGES[category]
-    emoji = str(payload.emoji)
-
-    if emoji not in data["roles"]:
-        return
-
-    role_name = data["roles"][emoji]
-    new_role = discord.utils.get(guild.roles, name=role_name)
-    if not new_role:
-        return
-
-    # Retirer les anciens rôles de la même catégorie
-    old_roles = [discord.utils.get(guild.roles, name=r) for r in data["roles"].values()]
-    old_roles = [r for r in old_roles if r and r in payload.member.roles and r != new_role]
-    if old_roles:
-        await payload.member.remove_roles(*old_roles)
-
-    # Attribuer le nouveau rôle
-    await payload.member.add_roles(new_role)
-
-
-@bot.event
-async def on_raw_reaction_remove(payload):
-    guild = bot.get_guild(payload.guild_id)
-    member = guild.get_member(payload.user_id)
-    if not member or member.bot:
-        return
-
-    if payload.message_id not in role_message_ids:
-        return
-
-    category = role_message_ids[payload.message_id]
-    data = ROLE_MESSAGES[category]
-    emoji = str(payload.emoji)
-
-    if emoji not in data["roles"]:
-        return
-
-    role_name = data["roles"][emoji]
-    role = discord.utils.get(guild.roles, name=role_name)
-    if role and role in member.roles:
-        await member.remove_roles(role)
-
-# ─────────────────────────────────────────────
 # COMMANDS — RULES
 # ─────────────────────────────────────────────
 
@@ -300,6 +266,33 @@ async def post_rules(interaction: discord.Interaction):
     msg = await channel.send(embed=embed)
     await msg.add_reaction("✅")
     await interaction.response.send_message(f"✅ Rules posted in {channel.mention}!", ephemeral=True)
+
+# ─────────────────────────────────────────────
+# COMMANDS — ROLES
+# ─────────────────────────────────────────────
+
+@bot.tree.command(name="post-roles", description="[Admin] Post the role selection messages in #roles")
+@app_commands.checks.has_permissions(administrator=True)
+async def post_roles(interaction: discord.Interaction):
+    channel = discord.utils.get(interaction.guild.text_channels, name=ROLES_CHANNEL)
+    if not channel:
+        await interaction.response.send_message(f"❌ Channel `#{ROLES_CHANNEL}` not found!", ephemeral=True)
+        return
+
+    await interaction.response.send_message(f"✅ Posting role messages in {channel.mention}!", ephemeral=True)
+
+    for category, data in ROLE_MESSAGES.items():
+        embed = discord.Embed(title=data["title"], color=0x9b59b6)
+        description = data["description"] + "\n\n"
+        for emoji, role_name in data["roles"].items():
+            description += f"{emoji} — **{role_name}**\n"
+        embed.description = description
+
+        msg = await channel.send(embed=embed)
+        role_message_ids[msg.id] = category
+
+        for emoji in data["roles"].keys():
+            await msg.add_reaction(emoji)
 
 # ─────────────────────────────────────────────
 # COMMANDS — PROFILES
@@ -374,7 +367,6 @@ async def profile_view(interaction: discord.Interaction, category: str):
     )
 
 bot.tree.add_command(profile_group)
-
 
 # ─────────────────────────────────────────────
 # COMMANDS — SESSIONS
