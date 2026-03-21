@@ -6,7 +6,7 @@ import os
 import asyncio
 
 # ─────────────────────────────────────────────
-# CONFIGURATION
+# CONFIGURATION 
 # ─────────────────────────────────────────────
 
 TOKEN = os.getenv("TOKEN")
