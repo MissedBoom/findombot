@@ -98,6 +98,8 @@ async def on_ready():
     synced = await bot.tree.sync()
     print(f"✅ Bot connected as {bot.user}")
     print(f"✅ {len(synced)} slash commands synced")
+    for cmd in synced:
+        print(f"  - /{cmd.name}")
 
 
 @bot.event
