@@ -56,8 +56,9 @@ active_sessions = {}
 @bot.event
 async def on_ready():
     await bot.tree.sync()
+    synced = await bot.tree.sync()
     print(f"✅ Bot connected as {bot.user}")
-    print("✅ Slash commands synced")
+    print(f"✅ {len(synced)} slash commands synced")
 
 # ─────────────────────────────────────────────
 # VIEWS
