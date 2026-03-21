@@ -370,6 +370,15 @@ async def profile_view(interaction: discord.Interaction, category: str):
 
 bot.tree.add_command(profile_group)
 
+@bot.event
+async def on_message(message):
+    if message.author.bot:
+        return
+    if message.channel.name == "left-or-right":
+        await message.add_reaction("⬅️")
+        await message.add_reaction("➡️")
+    await bot.process_commands(message)
+    
 # ─────────────────────────────────────────────
 # COMMANDS — SESSIONS
 # ─────────────────────────────────────────────
