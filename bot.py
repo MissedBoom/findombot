@@ -377,6 +377,9 @@ async def on_message(message):
     if message.channel.name == "left-or-right":
         await message.add_reaction("⬅️")
         await message.add_reaction("➡️")
+    if message.channel.name == "you-prefer":
+        await message.add_reaction("🅰️")
+        await message.add_reaction("🅱️")
     await bot.process_commands(message)
     
 # ─────────────────────────────────────────────
