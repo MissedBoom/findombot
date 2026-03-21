@@ -150,6 +150,11 @@ async def post_rules(interaction: discord.Interaction):
             "**5. 🔞 Adult Content**\n"
             "All content shared on this server must exclusively feature people "
             "who are 18 years of age or older. Violations will result in an immediate ban and may be reported.\n\n"
+            "**6. 👑 Findom Activity**\n"
+            "No unauthorized findom activity or promotion is allowed on this server. "
+            "Only approved findommes are permitted to offer or advertise their services. "
+            "If you wish to become a findomme on this server, please contact an administrator. "
+            "Any unauthorized findom activity will result in an immediate ban.\n\n"
             "─────────────────────\n"
             "✅ *React with ✅ below to confirm that you have read and accepted these rules.*"
         ),
