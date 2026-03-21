@@ -271,6 +271,13 @@ async def session_request(interaction: discord.Interaction, domme: discord.Membe
     if domme.bot:
         await interaction.response.send_message("You can't send a session request to a bot!", ephemeral=True)
         return
+    role = discord.utils.get(interaction.guild.roles, name="findommes")
+    if role not in domme.roles:
+        await interaction.response.send_message(
+            f"❌ You can only send a session request to a **findomme**!",
+            ephemeral=True
+        )
+        return
 
     view = SessionView(interaction.user, domme)
     await interaction.response.send_message(
