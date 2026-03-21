@@ -298,22 +298,6 @@ async def post_rules(interaction: discord.Interaction):
     await msg.add_reaction("✅")
     await interaction.response.send_message(f"✅ Rules posted in {channel.mention}!", ephemeral=True)
 
-
-@bot.event
-async def on_raw_reaction_add(payload):
-    if payload.member.bot:
-        return
-    guild = bot.get_guild(payload.guild_id)
-    channel = guild.get_channel(payload.channel_id)
-    if channel.name != RULES_CHANNEL:
-        return
-    if str(payload.emoji) != "✅":
-        return
-    role = discord.utils.get(guild.roles, name="Member")
-    if role and role not in payload.member.roles:
-        await payload.member.add_roles(role)
-
-
 # ─────────────────────────────────────────────
 # COMMANDS — PROFILES
 # ─────────────────────────────────────────────
