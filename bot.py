@@ -302,6 +302,7 @@ async def post_roles(interaction: discord.Interaction):
 
         msg = await channel.send(embed=embed)
         role_message_ids[msg.id] = category
+        save_role_message_ids(role_message_ids)
 
         for emoji in data["roles"].keys():
             await msg.add_reaction(emoji)
