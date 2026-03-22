@@ -87,7 +87,17 @@ ROLE_MESSAGES = {
     }
 }
 
-role_message_ids = {}
+def load_role_message_ids():
+    if os.path.exists("role_message_ids.json"):
+        with open("role_message_ids.json", "r") as f:
+            return {int(k): v for k, v in json.load(f).items()}
+    return {}
+
+def save_role_message_ids(data):
+    with open("role_message_ids.json", "w") as f:
+        json.dump(data, f, indent=4)
+
+role_message_ids = load_role_message_ids()
 
 # ─────────────────────────────────────────────
 # EVENTS
