@@ -551,7 +551,8 @@ async def session_end(interaction: discord.Interaction):
 
     del active_sessions[interaction.channel.id]
     await interaction.channel.delete()
-
+    
+bot.tree.add_command(profile_group)
 bot.tree.add_command(session_group)
 
 bot.run(TOKEN)
