@@ -315,6 +315,171 @@ profile_group = app_commands.Group(name="profile", description="Manage domme pro
 
 # Stocke les créations de profils en cours
 profile_sessions = {}
+
+class ProfileStepView(discord.ui.View):
+    def __init__(self, admin_id):
+        super().__init__(timeout=300)
+        self.admin_id = admin_id
+
+    @discord.ui.button(label="✅ Validate", style=discord.ButtonStyle.success)
+    async def validate(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.admin_id:
+            await interaction.response.send_message("Only the admin creating this profile can interact!", ephemeral=True)
+            return
+        for item in self.children:
+            item.disabled = True
+        await interaction.message.edit(view=self)
+        await interaction.response.send_message("✅ Step validated!", ephemeral=True)
+        profile_sessions[self.admin_id]["validated"] = True
+
+    @discord.ui.button(label="✏️ Edit", style=discord.ButtonStyle.secondary)
+    async def edit(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.admin_id:
+            await interaction.response.send_message("Only the admin creating this profile can interact!", ephemeral=True)
+            return
+        for item in self.children:
+            item.disabled = True
+        await interaction.message.edit(view=self)
+        await interaction.response.send_message("✏️ Send your new value for this step.", ephemeral=True)
+        profile_sessions[self.admin_id]["editing"] = True
+
+    @discord.ui.button(label="❌ Cancel", style=discord.ButtonStyle.danger)
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.admin_id:
+            await interaction.response.send_message("Only the admin creating this profile can interact!", ephemeral=True)
+            return
+        for item in self.children:
+            item.disabled = True
+        await interaction.message.edit(view=self)
+        await interaction.response.send_message("❌ Profile creation cancelled.", ephemeral=True)
+        if self.admin_id in profile_sessions:
+            del profile_sessions[self.admin_id]
+
+
+PROFILE_STEPS = [
+    {"key": "name", "label": "Name / Username", "emoji": "👑"},
+    {"key": "description", "label": "Description", "emoji": "📝"},
+    {"key": "specialties", "label": "Specialties", "emoji": "⚡"},
+    {"key": "rates", "label": "Rates", "emoji": "💰"},
+    {"key": "availability", "label": "Availability", "emoji": "🕐"},
+    {"key": "socials", "label": "Social media / links", "emoji": "🔗"},
+    {"key": "photo", "label": "Photo URL", "emoji": "🖼️"},
+]
+
+def build_profile_embed(data, channel_name):
+    embed = discord.Embed(title=f"👑 {data.get('name', '...')}", color=0x9b59b6)
+    if data.get("description"):
+        embed.add_field(name="📝 Description", value=data["description"], inline=False)
+    if data.get("specialties"):
+        embed.add_field(name="⚡ Specialties", value=data["specialties"], inline=False)
+    if data.get("rates"):
+        embed.add_field(name="💰 Rates", value=data["rates"], inline=True)
+    if data.get("availability"):
+        embed.add_field(name="🕐 Availability", value=data["availability"], inline=True)
+    if data.get("socials"):
+        embed.add_field(name="🔗 Socials", value=data["socials"], inline=False)
+    if data.get("photo"):
+        embed.set_image(url=data["photo"])
+    embed.set_footer(text=f"Profile posted in #{channel_name}")
+    return embed
+
+async def run_profile_creation(bot, interaction, channel):
+    admin_id = interaction.user.id
+    profile_sessions[admin_id] = {
+        "data": {},
+        "channel": channel,
+        "validated": False,
+        "editing": False,
+        "cancelled": False
+    }
+
+    for step in PROFILE_STEPS:
+        key = step["key"]
+        label = step["label"]
+        emoji = step["emoji"]
+
+        while True:
+            # Demander la valeur
+            await interaction.followup.send(
+                f"{emoji} **Step — {label}**\nSend your message below. You can use line breaks freely.",
+                ephemeral=True
+            )
+
+            # Attendre le message de l'admin
+            def check(m):
+                return m.author.id == admin_id and m.channel == interaction.channel
+
+            try:
+                msg = await bot.wait_for("message", check=check, timeout=300)
+                await msg.delete()
+            except asyncio.TimeoutError:
+                await interaction.followup.send("⏱️ Profile creation timed out.", ephemeral=True)
+                if admin_id in profile_sessions:
+                    del profile_sessions[admin_id]
+                return
+
+            if admin_id not in profile_sessions:
+                return
+
+            profile_sessions[admin_id]["data"][key] = msg.content
+            profile_sessions[admin_id]["validated"] = False
+            profile_sessions[admin_id]["editing"] = False
+
+            # Montrer la prévisualisation
+            preview_embed = build_profile_embed(profile_sessions[admin_id]["data"], channel.name)
+            preview_embed.set_author(name=f"Preview — {label}")
+            view = ProfileStepView(admin_id)
+            await interaction.followup.send(embed=preview_embed, view=view, ephemeral=True)
+
+            # Attendre validation ou édition
+            while True:
+                await asyncio.sleep(1)
+                if admin_id not in profile_sessions:
+                    return
+                session = profile_sessions[admin_id]
+                if session.get("validated"):
+                    break
+                if session.get("editing"):
+                    break
+
+            if profile_sessions[admin_id].get("validated"):
+                break
+            # Si editing, on reboucle sur la même étape
+
+    if admin_id not in profile_sessions:
+        return
+
+    # Poster le profil final
+    final_data = profile_sessions[admin_id]["data"]
+    final_embed = build_profile_embed(final_data, channel.name)
+    msg = await channel.send(embed=final_embed)
+
+    profiles = load_profiles()
+    profiles[str(msg.id)] = {
+        "name": final_data.get("name", "Unknown"),
+        "channel": channel.name
+    }
+    save_profiles(profiles)
+
+    del profile_sessions[admin_id]
+    await interaction.followup.send(f"✅ Profile for **{final_data.get('name')}** successfully posted in {channel.mention}!", ephemeral=True)
+
+
+@profile_group.command(name="create", description="[Admin] Create a profile step by step in the current channel (brat or mb)")
+@app_commands.checks.has_permissions(administrator=True)
+async def profile_create(interaction: discord.Interaction):
+    if interaction.channel.name not in PROFILE_CHANNELS:
+        await interaction.response.send_message(
+            f"❌ This command can only be used in `#brat` or `#mb`!",
+            ephemeral=True
+        )
+        return
+
+    await interaction.response.send_message(
+        "👑 **Profile creation started!** Follow the steps below. All messages are only visible to you.",
+        ephemeral=True
+    )
+    await run_profile_creation(bot, interaction, interaction.channel)
     
 # ─────────────────────────────────────────────
 # COMMANDS — SESSIONS
