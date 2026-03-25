@@ -386,6 +386,25 @@ PROFILE_STEPS = [
     {"key": "photo", "label": "Photo URL", "emoji": "🖼️"},
 ]
 
+PROFILE_STEP_MAP = {step["key"]: step for step in PROFILE_STEPS}
+
+PROFILE_EDIT_CHOICES = [
+    app_commands.Choice(name="name", value="name"),
+    app_commands.Choice(name="description", value="description"),
+    app_commands.Choice(name="specialties", value="specialties"),
+    app_commands.Choice(name="rates", value="rates"),
+    app_commands.Choice(name="availability", value="availability"),
+    app_commands.Choice(name="socials", value="socials"),
+    app_commands.Choice(name="photo", value="photo"),
+]
+
+EMBED_FIELD_TO_KEY = {
+    "📝 Description": "description",
+    "⚡ Specialties": "specialties",
+    "💰 Rates": "rates",
+    "🕐 Availability": "availability",
+    "🔗 Socials": "socials",
+}
 def build_profile_embed(data, channel_name):
     embed = discord.Embed(title=f"👑 {data.get('name', '...')}", color=0x9b59b6)
     if data.get("description"):
@@ -403,6 +422,33 @@ def build_profile_embed(data, channel_name):
     embed.set_footer(text=f"Profile posted in #{channel_name}")
     return embed
 
+def get_latest_profile_in_channel(profiles, channel_name):
+    for msg_id, profile in reversed(list(profiles.items())):
+        if profile.get("channel") == channel_name:
+            return msg_id, profile
+    return None, None
+
+
+def extract_profile_data_from_embed(message: discord.Message):
+    if not message.embeds:
+        return None
+
+    embed = message.embeds[0]
+    data = {}
+
+    if embed.title:
+        data["name"] = embed.title.replace("👑 ", "", 1).strip()
+
+    for field in embed.fields:
+        key = EMBED_FIELD_TO_KEY.get(field.name)
+        if key:
+            data[key] = field.value
+
+    if embed.image and embed.image.url:
+        data["photo"] = embed.image.url
+
+    return data if data else None
+    
 async def run_profile_creation(bot, interaction, channel):
     admin_id = interaction.user.id
     profile_sessions[admin_id] = {
@@ -477,14 +523,148 @@ async def run_profile_creation(bot, interaction, channel):
     profiles = load_profiles()
     profiles[str(msg.id)] = {
         "name": final_data.get("name", "Unknown"),
-        "channel": channel.name
+        "channel": channel.name,
+        "data": final_data,
+        "created_by": interaction.user.id
     }
     save_profiles(profiles)
 
     del profile_sessions[admin_id]
     await interaction.followup.send(f"✅ Profile for **{final_data.get('name')}** successfully posted in {channel.mention}!", ephemeral=True)
 
+async def run_profile_edit(bot, interaction, channel, profile_message_id: int, field_key: str):
+    admin_id = interaction.user.id
+    profiles = load_profiles()
+    profile_entry = profiles.get(str(profile_message_id))
 
+    if not profile_entry:
+        await interaction.followup.send("❌ Profile not found in database.", ephemeral=True)
+        return
+
+    current_data = profile_entry.get("data")
+
+    # Fallback pour les anciens profils déjà créés avant cette mise à jour
+    if not current_data:
+        try:
+            old_message = await channel.fetch_message(profile_message_id)
+            current_data = extract_profile_data_from_embed(old_message)
+        except discord.NotFound:
+            current_data = None
+
+    if not current_data:
+        await interaction.followup.send(
+            "❌ Impossible to load this profile data. Recreate it once, then editing will work normally.",
+            ephemeral=True
+        )
+        return
+
+    step = PROFILE_STEP_MAP[field_key]
+    label = step["label"]
+    emoji = step["emoji"]
+
+    profile_sessions[admin_id] = {
+        "data": current_data.copy(),
+        "channel": channel,
+        "validated": False,
+        "editing": False,
+        "cancelled": False
+    }
+
+    while True:
+        current_value = profile_sessions[admin_id]["data"].get(field_key, "Not set yet")
+
+        await interaction.followup.send(
+            f"{emoji} **Edit — {label}**\n"
+            f"Current value:\n{current_value}\n\n"
+            f"Send the new value below. You can use line breaks freely.",
+            ephemeral=True
+        )
+
+        def check(m):
+            return m.author.id == admin_id and m.channel == interaction.channel
+
+        try:
+            msg = await bot.wait_for("message", check=check, timeout=300)
+            try:
+                await msg.delete()
+            except discord.Forbidden:
+                pass
+        except asyncio.TimeoutError:
+            await interaction.followup.send("⏱️ Profile edit timed out.", ephemeral=True)
+            if admin_id in profile_sessions:
+                del profile_sessions[admin_id]
+            return
+
+        if admin_id not in profile_sessions:
+            return
+
+        new_value = msg.content.strip()
+
+        # Option pratique : taper "none" pour vider une image/photo
+        if field_key == "photo" and new_value.lower() in ["none", "remove", "delete", "clear"]:
+            profile_sessions[admin_id]["data"].pop("photo", None)
+        else:
+            profile_sessions[admin_id]["data"][field_key] = new_value
+
+        profile_sessions[admin_id]["validated"] = False
+        profile_sessions[admin_id]["editing"] = False
+
+        preview_embed = build_profile_embed(profile_sessions[admin_id]["data"], channel.name)
+        preview_embed.set_author(name=f"Preview — Edit {label}")
+
+        view = ProfileStepView(admin_id)
+        await interaction.followup.send(embed=preview_embed, view=view, ephemeral=True)
+
+        while True:
+            await asyncio.sleep(1)
+            if admin_id not in profile_sessions:
+                return
+
+            session = profile_sessions[admin_id]
+
+            if session.get("validated"):
+                break
+            if session.get("editing"):
+                break
+
+        if profile_sessions[admin_id].get("validated"):
+            break
+
+    if admin_id not in profile_sessions:
+        return
+
+    updated_data = profile_sessions[admin_id]["data"]
+    new_embed = build_profile_embed(updated_data, channel.name)
+
+    # Supprime l'ancien message
+    try:
+        old_message = await channel.fetch_message(profile_message_id)
+        await old_message.delete()
+    except discord.NotFound:
+        pass
+
+    # Republish le nouveau profil
+    new_msg = await channel.send(embed=new_embed)
+
+    profiles = load_profiles()
+    if str(profile_message_id) in profiles:
+        del profiles[str(profile_message_id)]
+
+    profiles[str(new_msg.id)] = {
+        "name": updated_data.get("name", "Unknown"),
+        "channel": channel.name,
+        "data": updated_data,
+        "created_by": interaction.user.id
+    }
+    save_profiles(profiles)
+
+    del profile_sessions[admin_id]
+
+    await interaction.followup.send(
+        f"✅ Profile updated successfully in {channel.mention}!",
+        ephemeral=True
+    )
+    
 @profile_group.command(name="create", description="[Admin] Create a profile step by step in the current channel (brat or mb)")
 @app_commands.checks.has_permissions(administrator=True)
 async def profile_create(interaction: discord.Interaction):
@@ -500,6 +680,69 @@ async def profile_create(interaction: discord.Interaction):
         ephemeral=True
     )
     await run_profile_creation(bot, interaction, interaction.channel)
+
+@profile_group.command(name="edit", description="[Admin] Edit one field of an existing profile")
+@app_commands.checks.has_permissions(administrator=True)
+@app_commands.describe(
+    field="Field to edit",
+    message_id="Optional: profile message ID. Leave empty to edit the latest profile in this channel."
+)
+@app_commands.choices(field=PROFILE_EDIT_CHOICES)
+async def profile_edit(
+    interaction: discord.Interaction,
+    field: app_commands.Choice[str],
+    message_id: str | None = None
+):
+    if interaction.channel.name not in PROFILE_CHANNELS:
+        await interaction.response.send_message(
+            "❌ This command can only be used in `#brat` or `#mb`!",
+            ephemeral=True
+        )
+        return
+
+    profiles = load_profiles()
+
+    # Si aucun message_id n'est donné, on prend le dernier profil du salon
+    if message_id is None:
+        found_message_id, profile_entry = get_latest_profile_in_channel(profiles, interaction.channel.name)
+        if not found_message_id:
+            await interaction.response.send_message(
+                "❌ No profile found in this channel.",
+                ephemeral=True
+            )
+            return
+        target_message_id = int(found_message_id)
+    else:
+        if not message_id.isdigit():
+            await interaction.response.send_message(
+                "❌ Invalid message ID.",
+                ephemeral=True
+            )
+            return
+
+        profile_entry = profiles.get(message_id)
+        if not profile_entry:
+            await interaction.response.send_message(
+                "❌ No profile found with this message ID.",
+                ephemeral=True
+            )
+            return
+
+        if profile_entry.get("channel") != interaction.channel.name:
+            await interaction.response.send_message(
+                "❌ This profile is not in the current channel.",
+                ephemeral=True
+            )
+            return
+
+        target_message_id = int(message_id)
+
+    await interaction.response.send_message(
+        f"✏️ Editing **{field.value}**. Send the new value in the chat below.",
+        ephemeral=True
+    )
+
+    await run_profile_edit(bot, interaction, interaction.channel, target_message_id, field.value)
     
 # ─────────────────────────────────────────────
 # COMMANDS — SESSIONS
