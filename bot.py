@@ -324,36 +324,56 @@ class ProfileStepView(discord.ui.View):
     @discord.ui.button(label="✅ Validate", style=discord.ButtonStyle.success)
     async def validate(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.admin_id:
-            await interaction.response.send_message("Only the admin creating this profile can interact!", ephemeral=True)
+            await interaction.response.send_message(
+                "Only the admin creating this profile can interact!",
+                ephemeral=True
+            )
             return
+
+        if self.admin_id in profile_sessions:
+            profile_sessions[self.admin_id]["validated"] = True
+
         for item in self.children:
             item.disabled = True
-        await interaction.message.edit(view=self)
-        await interaction.response.send_message("✅ Step validated!", ephemeral=True)
-        profile_sessions[self.admin_id]["validated"] = True
+
+        await interaction.response.edit_message(view=self)
+        await interaction.followup.send("✅ Step validated!", ephemeral=True)
 
     @discord.ui.button(label="✏️ Edit", style=discord.ButtonStyle.secondary)
     async def edit(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.admin_id:
-            await interaction.response.send_message("Only the admin creating this profile can interact!", ephemeral=True)
+            await interaction.response.send_message(
+                "Only the admin creating this profile can interact!",
+                ephemeral=True
+            )
             return
+
+        if self.admin_id in profile_sessions:
+            profile_sessions[self.admin_id]["editing"] = True
+
         for item in self.children:
             item.disabled = True
-        await interaction.message.edit(view=self)
-        await interaction.response.send_message("✏️ Send your new value for this step.", ephemeral=True)
-        profile_sessions[self.admin_id]["editing"] = True
+
+        await interaction.response.edit_message(view=self)
+        await interaction.followup.send("✏️ Send your new value for this step.", ephemeral=True)
 
     @discord.ui.button(label="❌ Cancel", style=discord.ButtonStyle.danger)
     async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.admin_id:
-            await interaction.response.send_message("Only the admin creating this profile can interact!", ephemeral=True)
+            await interaction.response.send_message(
+                "Only the admin creating this profile can interact!",
+                ephemeral=True
+            )
             return
+
         for item in self.children:
             item.disabled = True
-        await interaction.message.edit(view=self)
-        await interaction.response.send_message("❌ Profile creation cancelled.", ephemeral=True)
+
         if self.admin_id in profile_sessions:
             del profile_sessions[self.admin_id]
+
+        await interaction.response.edit_message(view=self)
+        await interaction.followup.send("❌ Profile creation cancelled.", ephemeral=True)
 
 
 PROFILE_STEPS = [
